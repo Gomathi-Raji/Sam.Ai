@@ -9,6 +9,7 @@ import speech_recognition as sr
 from PIL import Image
 import json
 import queue
+import streamlit.components.v1 as components
 
 # Import your existing modules
 from voice.speaker import speak
@@ -101,14 +102,21 @@ def process_voice_command(command):
         response = process_command_logic(command)
         log_conversation("Assistant", response)
         
+        # Set speaking status
+        st.session_state.system_status = "Speaking"
+        st.session_state.current_mode = "Speaking Response"
+        st.rerun()  # Force re-render to update orb
+        
         # Speak the response
         speak(response)
         
         st.session_state.system_status = "Ready"
+        st.session_state.current_mode = "Standby"
         st.success(f"✅ Processed: {command}")
         
     except Exception as e:
         st.session_state.system_status = "Error"
+        st.session_state.current_mode = "Error"
         st.error(f"❌ Error processing command: {e}")
 
 def process_text_command(command):
@@ -118,6 +126,16 @@ def process_text_command(command):
     try:
         response = process_command_logic(command)
         log_conversation("Assistant", response)
+        
+        # Set speaking status for text commands too
+        st.session_state.system_status = "Speaking"
+        st.session_state.current_mode = "Speaking Response"
+        st.rerun()  # Force re-render to update orb
+        
+        speak(response)
+        
+        st.session_state.system_status = "Ready"
+        st.session_state.current_mode = "Standby"
         st.success(f"✅ Processed: {command}")
         st.rerun()
         
@@ -312,6 +330,30 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Orb Animation Component
+orb_html_path = os.path.join(os.getcwd(), "orb_animation.html")
+if os.path.exists(orb_html_path):
+    with open(orb_html_path, 'r', encoding='utf-8') as f:
+        orb_html = f.read()
+    
+    # Update orb state based on current status
+    state_mapping = {
+        "Ready": "ready",
+        "Listening": "listening", 
+        "Processing": "processing",
+        "Speaking": "speaking",
+        "Error": "ready"  # Default to ready for error state
+    }
+    current_state = state_mapping.get(st.session_state.system_status, "ready")
+    
+    # Replace the initial state in the HTML
+    orb_html = orb_html.replace("sim.setState('ready');", f"sim.setState('{current_state}');")
+    
+    # Display the orb animation
+    components.html(orb_html, height=400, scrolling=False)
+else:
+    st.warning("Orb animation file not found. Please ensure orb_animation.html exists.")
+
 # Create main layout
 col1, col2, col3 = st.columns([1, 2, 1])
 
@@ -324,6 +366,7 @@ with col1:
         "Ready": "status-ready",
         "Listening": "status-listening", 
         "Processing": "status-processing",
+        "Speaking": "status-processing",  # Use same color as processing
         "Error": "status-error"
     }
     

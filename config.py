@@ -1,10 +1,10 @@
 import google.generativeai as genai
 
 # Replace this with your actual Gemini API key
-genai.configure(api_key="AIzaSyBif5c4kQOeJKpo-aRNQva86h1ldss_ggE")
+genai.configure(api_key="AIzaSyBSmEQAVf5WEM47g12omnusCkkEAOQ2XG0")
 
 def get_model():
-    return genai.GenerativeModel("gemini-2.0-flash")
+    return genai.GenerativeModel("gemini-2.0-flash-exp")
 
 # --- Spotify API Configuration ---
 # Get these credentials from https://developer.spotify.com/dashboard/

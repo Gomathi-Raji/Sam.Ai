@@ -1,0 +1,521 @@
+&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+    &lt;meta charset="UTF-8"&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+    &lt;title&gt;Zara Orb Animation&lt;/title&gt;
+    &lt;style&gt;
+        $border-radius: .25em;
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            color: #333;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #orb-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .status-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 10;
+            backdrop-filter: blur(10px);
+        }
+
+        .listening-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00ff88;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #00ff88;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .speaking-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff6b6b;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #ff6b6b;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .processing-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #4ecdc4;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #4ecdc4;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;div id="orb-container"&gt;
+        &lt;canvas id="orb-canvas"&gt;&lt;/canvas&gt;
+    &lt;/div&gt;
+
+    &lt;div class="status-overlay" id="status-overlay"&gt;
+        Status: Ready
+    &lt;/div&gt;
+
+    &lt;div class="listening-indicator" id="listening-indicator"&gt;
+        🎤 Listening...
+    &lt;/div&gt;
+
+    &lt;div class="speaking-indicator" id="speaking-indicator"&gt;
+        🔊 Speaking...
+    &lt;/div&gt;
+
+    &lt;div class="processing-indicator" id="processing-indicator"&gt;
+        ⚡ Processing...
+    &lt;/div&gt;
+
+    &lt;script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"&gt;&lt;/script&gt;
+    &lt;script&gt;
+        const IS_DEBUG = false;
+
+        class EventEmitter {
+            constructor() {
+                this.handlers = {};
+            }
+
+            on(event, handler) {
+                if (!this.hasEventHandlers(event)) {
+                    this.handlers[event] = [];
+                }
+
+                this.handlers[event].push(handler);
+            }
+
+            emit(event, ...args) {
+                if (!this.hasEventHandlers(event)) {
+                    return;
+                }
+
+                this.handlers[event]
+                    .forEach((eventHandler) =&gt; eventHandler(...args));
+            }
+
+            hasEventHandlers(event) {
+                return event in this.handlers;
+            }
+        }
+
+        class ShaderLibrary {
+            static get particlesFragment() {
+                return `
+                    uniform float uAmplitudeHigh;
+                    uniform float uAmplitudeLow;
+                    uniform float uTime;
+                    uniform vec3 uColorBase;
+                    uniform vec3 uColorHighlight;
+                    uniform float uStateIntensity;
+
+                    void main() {
+                        vec3 color = mix(uColorBase, uColorHighlight, uAmplitudeHigh * uAmplitudeHigh * uStateIntensity);
+                        gl_FragColor = vec4(color, 0.01 + uAmplitudeHigh * 0.3 * uStateIntensity);
+                    }`;
+            }
+
+            static get particlesVertex() {
+                return `
+                    attribute vec2 reference;
+                    uniform float uAmplitudeLow;
+                    uniform float uTime;
+                    uniform float uStateIntensity;
+                    uniform float uPulseFrequency;
+
+                    ${ShaderLibrary.noise}
+                    ${ShaderLibrary.curlNoise}
+
+                    const float displacement = 32.0;
+
+                    void main() {
+                        float curlFrequency = uPulseFrequency;
+                        float curlMultiplier = sin(uTime * curlFrequency) / 4.0 + 0.75;
+
+                        vec3 position = position + curlNoise(position * curlMultiplier) * displacement * uAmplitudeLow * uStateIntensity;
+
+                        ${THREE.ShaderChunk.begin_vertex}
+                        ${THREE.ShaderChunk.project_vertex}
+
+                        gl_PointSize = (256.0 + uStateIntensity * 100.0) * (1.0 / -mvPosition.z);
+                    }`;
+            }
+
+            static get noise() {
+                return `//	Simplex 3D Noise
+                    //	by Ian McEwan, Ashima Arts
+                    //
+                    vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+                    vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+
+                    float snoise(vec3 v){
+                        const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+                        const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+
+                    // First corner
+                        vec3 i  = floor(v + dot(v, C.yyy) );
+                        vec3 x0 =   v - i + dot(i, C.xxx) ;
+
+                    // Other corners
+                        vec3 g = step(x0.yzx, x0.xyz);
+                        vec3 l = 1.0 - g;
+                        vec3 i1 = min( g.xyz, l.zxy );
+                        vec3 i2 = max( g.xyz, l.zxy );
+
+                        //  x0 = x0 - 0. + 0.0 * C
+                        vec3 x1 = x0 - i1 + 1.0 * C.xxx;
+                        vec3 x2 = x0 - i2 + 2.0 * C.xxx;
+                        vec3 x3 = x0 - 1. + 3.0 * C.xxx;
+
+                    // Permutations
+                        i = mod(i, 289.0 );
+                        vec4 p = permute( permute( permute(
+                                             i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+                                         + i.y + vec4(0.0, i1.y, i2.y, 1.0 ))
+                                         + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+
+                    // Gradients
+                    // ( N*N points uniformly over a square, mapped onto an octahedron.)
+                        float n_ = 1.0/7.0; // N=7
+                        vec3  ns = n_ * D.wyz - D.xzx;
+
+                        vec4 j = p - 49.0 * floor(p * ns.z *ns.z);  //  mod(p,N*N)
+
+                        vec4 x_ = floor(j * ns.z);
+                        vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)
+
+                        vec4 x = x_ *ns.x + ns.yyyy;
+                        vec4 y = y_ *ns.x + ns.yyyy;
+                        vec4 h = 1.0 - abs(x) - abs(y);
+
+                        vec4 b0 = vec4( x.xy, y.xy );
+                        vec4 b1 = vec4( x.zw, y.zw );
+
+                        vec4 s0 = floor(b0)*2.0 + 1.0;
+                        vec4 s1 = floor(b1)*2.0 + 1.0;
+                        vec4 sh = -step(h, vec4(0.0));
+
+                        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+                        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+
+                        vec3 p0 = vec3(a0.xy,h.x);
+                        vec3 p1 = vec3(a0.zw,h.y);
+                        vec3 p2 = vec3(a1.xy,h.z);
+                        vec3 p3 = vec3(a1.zw,h.w);
+
+                    //Normalise gradients
+                        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+                        p0 *= norm.x;
+                        p1 *= norm.y;
+                        p2 *= norm.z;
+                        p3 *= norm.w;
+
+                    // Mix final noise value
+                        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                        m = m * m;
+                        return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1),
+                                                                     dot(p2,x2), dot(p3,x3) ) );
+                    }`;
+            }
+
+            static get curlNoise() {
+                return `
+                    vec3 snoiseVec3( vec3 x ){
+                        float s  = snoise(vec3( x ));
+                        float s1 = snoise(vec3( x.y - 19.1 , x.z + 33.4 , x.x + 47.2 ));
+                        float s2 = snoise(vec3( x.z + 74.2 , x.x - 124.5 , x.y + 99.4 ));
+                        vec3 c = vec3( s , s1 , s2 );
+                        return c;
+                    }
+
+                    vec3 curlNoise( vec3 p ){
+                        const float e = .1;
+                        vec3 dx = vec3( e   , 0.0 , 0.0 );
+                        vec3 dy = vec3( 0.0 , e   , 0.0 );
+                        vec3 dz = vec3( 0.0 , 0.0 , e   );
+
+                        vec3 p_x0 = snoiseVec3( p - dx );
+                        vec3 p_x1 = snoiseVec3( p + dx );
+                        vec3 p_y0 = snoiseVec3( p - dy );
+                        vec3 p_y1 = snoiseVec3( p + dy );
+                        vec3 p_z0 = snoiseVec3( p - dz );
+                        vec3 p_z1 = snoiseVec3( p + dz );
+
+                        float x = p_y1.z - p_y0.z - p_z1.y + p_z0.y;
+                        float y = p_z1.x - p_z0.x - p_x1.z + p_x0.z;
+                        float z = p_x1.y - p_x0.y - p_y1.x + p_y0.x;
+
+                        const float divisor = 1.0 / ( 2.0 * e );
+                        return normalize( vec3( x , y , z ) * divisor );
+                    }`;
+            }
+        }
+
+        class ParticleGeometry extends THREE.BufferGeometry {
+            constructor(particleCount, positionFactory) {
+                super();
+
+                const vertices = new Float32Array(particleCount * 3);
+
+                for (let i = 0; i &lt; vertices.length; i += 3) {
+                    const {x, y, z} = positionFactory(i);
+
+                    vertices[i] = x;
+                    vertices[i + 1] = y;
+                    vertices[i + 2] = z;
+                }
+
+                this.addAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            }
+        }
+
+        class Simulation {
+            constructor() {
+                this.camera = new THREE.PerspectiveCamera(45, 1, 1, 1024);
+                this.camera.position.x = this.camera.far * .125;
+                this.camera.position.y = this.camera.far * .125;
+                this.camera.position.z = this.camera.far * .125;
+                this.camera.lookAt(new THREE.Vector3);
+
+                this.renderer = new THREE.WebGLRenderer({
+                    antialias: true,
+                    alpha: true
+                });
+                this.scene = new THREE.Scene();
+
+                if (IS_DEBUG) {
+                    this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                }
+
+                // State-based uniforms
+                this.particlesUniforms = {
+                    uPosition: { value: null },
+                    uAmplitudeLow: { value: 0 },
+                    uAmplitudeHigh: { value: 0 },
+                    uTime: { value: 0 },
+                    uStateIntensity: { value: 1.0 },
+                    uPulseFrequency: { value: 1.0 },
+                    uColorBase: { value: new THREE.Vector3(0.1, 0.1, 0.8) },
+                    uColorHighlight: { value: new THREE.Vector3(0.3, 0.8, 1.0) },
+                };
+
+                this.particles = Simulation.getParticleMesh(
+                    2 &lt;&lt; 16,
+                    ShaderLibrary.particlesFragment,
+                    ShaderLibrary.particlesVertex,
+                    this.particlesUniforms
+                );
+
+                this.scene.add(this.particles);
+
+                this.timer = new THREE.Clock();
+                this.currentState = 'ready';
+                this.stateTimer = 0;
+            }
+
+            resize() {
+                const height = window.innerHeight;
+                const width = window.innerWidth;
+
+                this.camera.aspect = width / height;
+                this.camera.updateProjectionMatrix();
+
+                this.renderer.setSize(width, height);
+            }
+
+            setState(state) {
+                this.currentState = state;
+                this.stateTimer = 0;
+
+                // Update status overlay
+                const statusOverlay = document.getElementById('status-overlay');
+                statusOverlay.textContent = `Status: ${state.charAt(0).toUpperCase() + state.slice(1)}`;
+
+                // Update indicators
+                const listeningIndicator = document.getElementById('listening-indicator');
+                const speakingIndicator = document.getElementById('speaking-indicator');
+                const processingIndicator = document.getElementById('processing-indicator');
+
+                listeningIndicator.style.opacity = state === 'listening' ? '1' : '0';
+                speakingIndicator.style.opacity = state === 'speaking' ? '1' : '0';
+                processingIndicator.style.opacity = state === 'processing' ? '1' : '0';
+
+                // Update particle colors and behavior based on state
+                switch(state) {
+                    case 'listening':
+                        this.particlesUniforms.uColorBase.value.set(0.0, 0.8, 0.0); // Green
+                        this.particlesUniforms.uColorHighlight.value.set(0.0, 1.0, 0.5);
+                        this.particlesUniforms.uPulseFrequency.value = 2.0;
+                        break;
+                    case 'speaking':
+                        this.particlesUniforms.uColorBase.value.set(0.8, 0.0, 0.0); // Red
+                        this.particlesUniforms.uColorHighlight.value.set(1.0, 0.3, 0.0);
+                        this.particlesUniforms.uPulseFrequency.value = 3.0;
+                        break;
+                    case 'processing':
+                        this.particlesUniforms.uColorBase.value.set(0.0, 0.5, 0.8); // Blue
+                        this.particlesUniforms.uColorHighlight.value.set(0.3, 0.8, 1.0);
+                        this.particlesUniforms.uPulseFrequency.value = 4.0;
+                        break;
+                    default: // ready
+                        this.particlesUniforms.uColorBase.value.set(0.1, 0.1, 0.8); // Blue
+                        this.particlesUniforms.uColorHighlight.value.set(0.3, 0.8, 1.0);
+                        this.particlesUniforms.uPulseFrequency.value = 1.0;
+                        break;
+                }
+            }
+
+            render() {
+                this.stateTimer += 0.016; // Approximate 60fps
+
+                // Calculate state intensity based on current state
+                let stateIntensity = 1.0;
+                let amplitudeLow = 0.1;
+                let amplitudeHigh = 0.1;
+
+                switch(this.currentState) {
+                    case 'listening':
+                        // Pulsing effect for listening
+                        stateIntensity = 1.0 + Math.sin(this.stateTimer * 4) * 0.3;
+                        amplitudeLow = 0.3 + Math.sin(this.stateTimer * 2) * 0.2;
+                        amplitudeHigh = 0.2 + Math.sin(this.stateTimer * 3) * 0.15;
+                        break;
+                    case 'speaking':
+                        // Strong pulsing for speaking
+                        stateIntensity = 1.2 + Math.sin(this.stateTimer * 6) * 0.4;
+                        amplitudeLow = 0.5 + Math.sin(this.stateTimer * 4) * 0.3;
+                        amplitudeHigh = 0.4 + Math.sin(this.stateTimer * 5) * 0.25;
+                        break;
+                    case 'processing':
+                        // Fast pulsing for processing
+                        stateIntensity = 1.1 + Math.sin(this.stateTimer * 8) * 0.2;
+                        amplitudeLow = 0.2 + Math.sin(this.stateTimer * 6) * 0.1;
+                        amplitudeHigh = 0.15 + Math.sin(this.stateTimer * 7) * 0.1;
+                        break;
+                    default: // ready
+                        // Gentle ambient motion
+                        stateIntensity = 0.8 + Math.sin(this.stateTimer * 1) * 0.1;
+                        amplitudeLow = 0.1;
+                        amplitudeHigh = 0.05;
+                        break;
+                }
+
+                this.particlesUniforms.uStateIntensity.value = stateIntensity;
+                this.particlesUniforms.uAmplitudeLow.value = amplitudeLow;
+                this.particlesUniforms.uAmplitudeHigh.value = amplitudeHigh;
+                this.particlesUniforms.uTime.value = this.timer.getElapsedTime();
+
+                if (IS_DEBUG) {
+                    this.controls.update();
+                }
+
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            static getParticleMesh(particleCount, fragmentShader, vertexShader, uniforms = {}, defines = {}) {
+                const geometry = new ParticleGeometry(particleCount, () =&gt; {
+                    const u = Math.random();
+                    const v = Math.random();
+
+                    // http://mathworld.wolfram.com/SpherePointPicking.html
+                    // http://corysimon.github.io/articles/uniformdistn-on-sphere/
+                    const azimuth = 2 * Math.PI * v;
+                    const inclination = Math.acos(1 - 2 * u);
+                    const radius = 1;
+
+                    return {
+                        x: radius * Math.sin(inclination) * Math.cos(azimuth),
+                        y: radius * Math.cos(inclination),
+                        z: radius * Math.sin(inclination) * Math.sin(azimuth),
+                    };
+                });
+
+                const material = new THREE.ShaderMaterial({
+                    defines,
+                    uniforms,
+
+                    fragmentShader,
+                    vertexShader,
+
+                    side: THREE.DoubleSide,
+                    blending: THREE.AdditiveBlending,
+                    transparent: true,
+                    depthTest: false,
+                    depthWrite: false,
+                });
+
+                return new THREE.Points(geometry, material);
+            }
+        }
+
+        // Initialize simulation
+        const sim = new Simulation();
+        const canvas = document.getElementById('orb-canvas');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        sim.renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('orb-container').appendChild(sim.renderer.domElement);
+
+        window.addEventListener('resize', () =&gt; {
+            sim.resize();
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            sim.render();
+        }
+        animate();
+
+        // Function to update orb state from external calls
+        window.updateOrbState = function(state) {
+            sim.setState(state);
+        };
+
+        // Set initial state
+        sim.setState('ready');
+    &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;

@@ -477,9 +477,21 @@ def process_command(command):
 
 # Entry point
 if __name__ == "__main__":
-    welcome_msg = "வணக்கம்! நான் ஜாரா. இன்று நான் உங்களுக்கு எப்படி உதவ முடியும்?"
-    speak(welcome_msg)
-    log_conversation("Assistant", welcome_msg)
-    while True:
-        command = listen()
-        process_command(command)
+    # Check if we should run in web UI mode (default) or terminal mode
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == '--terminal':
+        # Terminal mode
+        print("🖥️  Running in TERMINAL mode")
+        welcome_msg = "வணக்கம்! நான் ஜாரா. இன்று நான் உங்களுக்கு எப்படி உதவ முடியும்?"
+        speak(welcome_msg)
+        log_conversation("Assistant", welcome_msg)
+        while True:
+            command = listen()
+            process_command(command)
+    else:
+        # Web UI mode (default)
+        print("🌐 Running in WEB UI mode")
+        print("🌐 Starting web server...")
+        from web_ui import start_server
+        start_server()
