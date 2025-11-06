@@ -1,16 +1,23 @@
 import google.generativeai as genai
+import os
 
-# Replace this with your actual Gemini API key
-genai.configure(api_key="AIzaSyBSmEQAVf5WEM47g12omnusCkkEAOQ2XG0")
+# Configure Gemini API key from environment variable
+api_key = os.environ.get('GEMINI_API_KEY')
+if not api_key:
+    raise ValueError("GEMINI_API_KEY environment variable is not set")
+genai.configure(api_key=api_key)
 
 def get_model():
     return genai.GenerativeModel("gemini-2.0-flash-exp")
 
 # --- Spotify API Configuration ---
 # Get these credentials from https://developer.spotify.com/dashboard/
-SPOTIFY_CLIENT_ID = "c9a5ff11cec84ed5a3b27baeb8372588"
-SPOTIFY_CLIENT_SECRET = "84f3442d474f41c7b41462bd29069a32"
+SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID')
+SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET')
 SPOTIFY_REDIRECT_URI = "http://localhost:8080/callback"
+
+if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+    raise ValueError("SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET environment variables must be set")
 
 # Instructions:
 # 1. Go to https://developer.spotify.com/dashboard/
