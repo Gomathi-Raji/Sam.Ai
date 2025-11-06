@@ -116,8 +116,17 @@ def process_command(command):
     log_conversation("Assistant", response)
     update_orb_state('speaking')
 
-    # Send text to browser for speech synthesis
-    socketio.emit('speak_text', {'text': response})
+    # Check if response is from fallback (contains certain keywords)
+    is_fallback = any(phrase in response for phrase in [
+        "மன்னிக்கவும், நான் தற்போது",
+        "விரிவான பதில்கள் கொடுக்க முடியாது"
+    ])
+
+    # Send text to browser for speech synthesis with fallback indicator
+    socketio.emit('speak_text', {
+        'text': response,
+        'is_fallback': is_fallback
+    })
 
     # Try to speak locally (will fail in container, but that's ok)
     try:
