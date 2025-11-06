@@ -81,9 +81,9 @@
         }
 
         .state-indicator.listening {
-            color: rgba(70, 255, 140, 1);
-            border-color: rgba(70, 255, 140, 0.3);
-            background: rgba(70, 255, 140, 0.1);
+            color: rgba(50, 255, 150, 1);
+            border-color: rgba(50, 255, 150, 0.3);
+            background: rgba(50, 255, 150, 0.1);
             animation: pulse-border 1.5s ease-in-out infinite;
         }
 
@@ -215,11 +215,6 @@
         let audioVolume = 0;
         let audioPitch = 0;
         let audioRate = 0;
-        
-        // Smooth interpolation for expansion/collapse
-        let targetSphereRad = 280;
-        let targetRadius_sp = 1;
-        let smoothingFactor = 0.15; // Higher = faster response, Lower = smoother
 
         // Canvas setup
         function resizeCanvas() {
@@ -320,23 +315,12 @@
         function onTimer() {
             const config = stateColors[currentState];
             
-            // Calculate target sphere size based on audio (pitch and volume)
-            // Volume affects overall size, pitch affects expansion intensity
-            const volumeExpansion = audioVolume * 150; // 0-150 size increase
-            const pitchExpansion = audioPitch * 80; // 0-80 size increase based on pitch
-            const rateExpansion = audioRate * 60; // 0-60 size increase based on speech rate
+            // Dynamic sphere size based on audio
+            sphereRad = config.sphereSize + (audioVolume * 100) + (audioPitch * 50);
+            radius_sp = 1 + (audioVolume * 0.5);
             
-            targetSphereRad = config.sphereSize + volumeExpansion + pitchExpansion + rateExpansion;
-            targetRadius_sp = 1 + (audioVolume * 0.6) + (audioPitch * 0.3);
-            
-            // Smooth interpolation for expansion/collapse
-            sphereRad += (targetSphereRad - sphereRad) * smoothingFactor;
-            radius_sp += (targetRadius_sp - radius_sp) * smoothingFactor;
-            
-            // Update particle generation rate based on audio intensity
-            const baseParticles = config.particlesPerFrame;
-            const audioIntensity = (audioVolume + audioRate + audioPitch) / 3;
-            numToAddEachFrame = Math.floor(baseParticles + (audioIntensity * 12));
+            // Update particle generation rate
+            numToAddEachFrame = config.particlesPerFrame + Math.floor(audioVolume * 8);
             
             count++;
             if (count >= wait) {
@@ -348,8 +332,7 @@
                     y0 = sphereRad * Math.sin(phi) * Math.sin(theta);
                     z0 = sphereRad * Math.cos(phi);
                     
-                    // Speed multiplier based on speech rate and pitch
-                    const speedMultiplier = config.particleSpeed * (1 + audioRate * 2.5 + audioPitch * 1.5);
+                    const speedMultiplier = config.particleSpeed * (1 + audioRate * 2);
                     p = addParticle(
                         x0, 
                         sphereCenterY + y0, 
@@ -359,16 +342,14 @@
                         speedMultiplier * z0
                     );
                     
-                    // Envelope parameters for particle lifecycle
-                    p.attack = 50 - (audioRate * 20); // Faster attack with higher speech rate
-                    p.hold = 50 + (audioVolume * 30); // Longer hold with more volume
-                    p.decay = 100 - (audioPitch * 30); // Faster decay with higher pitch
+                    p.attack = 50;
+                    p.hold = 50;
+                    p.decay = 100;
                     p.initValue = 0;
-                    p.holdValue = particleAlpha * (0.8 + audioVolume * 0.2);
+                    p.holdValue = particleAlpha;
                     p.lastValue = 0;
                     
-                    // Particles appear faster when speech is active
-                    p.stuckTime = Math.max(10, 90 + Math.random() * 20 - (audioVolume * 50) - (audioRate * 30));
+                    p.stuckTime = 90 + Math.random() * 20 - (audioVolume * 30);
                     
                     p.accelX = 0;
                     p.accelY = gravity;
@@ -376,8 +357,8 @@
                 }
             }
             
-            // Update viewing angle - rotation speed affected by speech rate
-            turnSpeed = config.rotationSpeed * (1 + audioRate * 1.5 + audioPitch * 0.8);
+            // Update viewing angle
+            turnSpeed = config.rotationSpeed * (1 + audioRate);
             turnAngle = (turnAngle + turnSpeed) % (2 * Math.PI);
             sinAngle = Math.sin(turnAngle);
             cosAngle = Math.cos(turnAngle);
@@ -437,25 +418,11 @@
                     depthAlphaFactor = (depthAlphaFactor > 1) ? 1 : ((depthAlphaFactor < 0) ? 0 : depthAlphaFactor);
                     context.fillStyle = rgbString + depthAlphaFactor * p.alpha + ")";
                     
-                    // Dynamic particle size based on audio
-                    const audioSizeMultiplier = 1 + (audioVolume * 0.5) + (audioPitch * 0.3);
-                    const dynamicParticleRad = particleRad * audioSizeMultiplier;
-                    
                     // Draw particle
                     context.beginPath();
-                    context.arc(p.projX, p.projY, m * dynamicParticleRad, 0, 2 * Math.PI, false);
+                    context.arc(p.projX, p.projY, m * particleRad, 0, 2 * Math.PI, false);
                     context.closePath();
                     context.fill();
-                    
-                    // Add glow effect during high audio activity
-                    if (audioVolume > 0.3 || audioPitch > 0.4) {
-                        const glowAlpha = (audioVolume + audioPitch) * 0.15 * depthAlphaFactor * p.alpha;
-                        context.fillStyle = rgbString + glowAlpha + ")";
-                        context.beginPath();
-                        context.arc(p.projX, p.projY, m * dynamicParticleRad * 2.5, 0, 2 * Math.PI, false);
-                        context.closePath();
-                        context.fill();
-                    }
                 }
                 
                 p = nextParticle;
@@ -537,6 +504,241 @@
             rgbString = "rgba(" + r + "," + g + "," + b + ",";
         }
 
+        // Canvas setup
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Mouse tracking
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
+        });
+
+        // State color configurations
+        const stateColors = {
+            ready: {
+                primary: { r: 100, g: 150, b: 255 },
+                secondary: { r: 50, g: 100, b: 220 },
+                particleCount: 150,
+                connectionDistance: 150,
+                particleSize: 2,
+                speed: 0.3,
+                expansionMultiplier: 1.0
+            },
+            listening: {
+                primary: { r: 50, g: 255, b: 150 },
+                secondary: { r: 30, g: 200, b: 120 },
+                particleCount: 200,
+                connectionDistance: 180,
+                particleSize: 2.5,
+                speed: 0.8,
+                expansionMultiplier: 1.5
+            },
+            speaking: {
+                primary: { r: 255, g: 120, b: 80 },
+                secondary: { r: 220, g: 80, b: 50 },
+                particleCount: 250,
+                connectionDistance: 200,
+                particleSize: 3,
+                speed: 1.2,
+                expansionMultiplier: 2.0
+            },
+            processing: {
+                primary: { r: 180, g: 100, b: 255 },
+                secondary: { r: 140, g: 70, b: 220 },
+                particleCount: 180,
+                connectionDistance: 160,
+                particleSize: 2.5,
+                speed: 0.6,
+                expansionMultiplier: 1.2
+            }
+        };
+
+        // Particle class
+        class Particle {
+            constructor() {
+                this.baseX = Math.random() * canvas.width;
+                this.baseY = Math.random() * canvas.height;
+                this.x = this.baseX;
+                this.y = this.baseY;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.radius = Math.random() * 2 + 1;
+                this.baseRadius = this.radius;
+                this.opacity = Math.random() * 0.5 + 0.3;
+                this.angle = Math.random() * Math.PI * 2;
+                this.orbitRadius = Math.random() * 100 + 50;
+                this.orbitSpeed = (Math.random() - 0.5) * 0.02;
+                this.phaseOffset = Math.random() * Math.PI * 2;
+            }
+
+            update(config) {
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+
+                // Calculate expansion based on audio input
+                const expansion = expansionFactor * config.expansionMultiplier;
+                
+                // Move particles in an orbital pattern around center
+                this.angle += this.orbitSpeed * config.speed;
+                
+                // Expand/collapse orbit based on audio
+                const dynamicOrbitRadius = this.orbitRadius * expansion;
+                
+                // Target position in orbit
+                const targetX = centerX + Math.cos(this.angle) * dynamicOrbitRadius;
+                const targetY = centerY + Math.sin(this.angle) * dynamicOrbitRadius;
+
+                // Smooth movement towards target
+                this.x += (targetX - this.x) * 0.05;
+                this.y += (targetY - this.y) * 0.05;
+
+                // Add wave motion based on audio rate
+                const waveOffset = Math.sin(Date.now() * 0.003 + this.phaseOffset) * 20 * audioRate;
+                this.x += Math.cos(this.angle + Math.PI / 2) * waveOffset * 0.1;
+                this.y += Math.sin(this.angle + Math.PI / 2) * waveOffset * 0.1;
+
+                // Mouse interaction
+                const dx = mouseX - this.x;
+                const dy = mouseY - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 150) {
+                    const force = (150 - distance) / 150;
+                    this.x -= (dx / distance) * force * 10;
+                    this.y -= (dy / distance) * force * 10;
+                }
+
+                // Animate radius based on audio volume and pitch
+                const pulseEffect = Math.sin(Date.now() * 0.005 + this.phaseOffset) * 0.5;
+                this.radius = this.baseRadius * config.particleSize * (1 + audioVolume * 0.5 + pulseEffect * audioPitch);
+
+                // Update opacity based on expansion
+                this.opacity = 0.3 + expansion * 0.3 + audioVolume * 0.2;
+            }
+
+            draw(color) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                
+                // Add glow effect based on audio
+                if (audioVolume > 0.1) {
+                    const gradient = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, this.radius * 3
+                    );
+                    gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, ${this.opacity})`);
+                    gradient.addColorStop(0.5, `rgba(${color.r}, ${color.g}, ${color.b}, ${this.opacity * 0.5})`);
+                    gradient.addColorStop(1, `rgba(${color.r}, ${color.g}, ${color.b}, 0)`);
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius * 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${this.opacity})`;
+                ctx.fill();
+            }
+        }
+
+        // Initialize particles
+        function initParticles(count) {
+            particles = [];
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        // Update particle count based on state
+        function updateParticleCount(targetCount) {
+            const currentCount = particles.length;
+            if (currentCount < targetCount) {
+                for (let i = currentCount; i < targetCount; i++) {
+                    particles.push(new Particle());
+                }
+            } else if (currentCount > targetCount) {
+                particles = particles.slice(0, targetCount);
+            }
+        }
+
+        // Draw connections between particles
+        function drawConnections(config, color) {
+            const maxConnections = 5; // Limit connections per particle
+            
+            for (let i = 0; i < particles.length; i++) {
+                let connectionCount = 0;
+                
+                for (let j = i + 1; j < particles.length && connectionCount < maxConnections; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    const effectiveDistance = config.connectionDistance * expansionFactor;
+                    
+                    if (distance < effectiveDistance) {
+                        const opacity = (1 - distance / effectiveDistance) * 0.4 * (1 + audioVolume * 0.5);
+                        const lineWidth = 1 + audioVolume * 2;
+                        
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${opacity})`;
+                        ctx.lineWidth = lineWidth;
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.stroke();
+                        
+                        connectionCount++;
+                    }
+                }
+            }
+        }
+
+        // Draw mouse connections
+        function drawMouseConnections(config, color) {
+            particles.forEach(particle => {
+                const dx = mouseX - particle.x;
+                const dy = mouseY - particle.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < 200) {
+                    const opacity = (1 - distance / 200) * 0.5;
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${opacity})`;
+                    ctx.lineWidth = 2;
+                    ctx.moveTo(particle.x, particle.y);
+                    ctx.lineTo(mouseX, mouseY);
+                    ctx.stroke();
+                }
+            });
+        }
+
+        // Central glow effect
+        function drawCentralGlow(color) {
+            const glowSize = 150 * expansionFactor * (1 + audioVolume);
+            const gradient = ctx.createRadialGradient(
+                canvas.width / 2, canvas.height / 2, 0,
+                canvas.width / 2, canvas.height / 2, glowSize
+            );
+            
+            const intensity = 0.2 + audioVolume * 0.3;
+            gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, ${intensity})`);
+            gradient.addColorStop(0.5, `rgba(${color.r}, ${color.g}, ${color.b}, ${intensity * 0.5})`);
+            gradient.addColorStop(1, `rgba(${color.r}, ${color.g}, ${color.b}, 0)`);
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
         // Audio analysis functions
         function initAudioContext() {
             if (!audioContext) {
@@ -599,73 +801,56 @@
             
             const totalEnergy = lowEnergy + highEnergy;
             audioRate = totalEnergy > 0 ? (highEnergy / totalEnergy) : 0;
+
+            // Update expansion factor based on audio
+            if (currentState === 'listening') {
+                targetExpansion = 0.8 + audioVolume * 1.5 + audioRate * 0.5;
+            } else if (currentState === 'speaking') {
+                targetExpansion = 1.0 + audioVolume * 2.0 + audioPitch * 0.8;
+            } else if (currentState === 'processing') {
+                targetExpansion = 1.0 + Math.sin(Date.now() * 0.003) * 0.3;
+            } else {
+                targetExpansion = 1.0;
+            }
+
+            // Smooth transition
+            expansionFactor += (targetExpansion - expansionFactor) * 0.1;
         }
 
-        // Speech synthesis audio simulation
+        // Speech synthesis audio capture for speaking mode
         let speechAnimationInterval = null;
-        let speechWordIndex = 0;
-        let speechPhase = 0;
         
-        function simulateSpeechAudio(utterance) {
-            utterance.onstart = () => {
-                clearInterval(speechAnimationInterval);
-                speechWordIndex = 0;
-                speechPhase = 0;
-                
-                // Simulate natural speech patterns
-                speechAnimationInterval = setInterval(() => {
-                    speechPhase += 0.1;
-                    
-                    // Create natural speech rhythm with variations
-                    const baseVolume = 0.4 + Math.sin(speechPhase * 0.8) * 0.15;
-                    const volumeVariation = Math.random() * 0.25;
-                    audioVolume = Math.min(0.9, baseVolume + volumeVariation);
-                    
-                    // Pitch varies with speech melody
-                    const basePitch = 0.5 + Math.sin(speechPhase * 0.6) * 0.2;
-                    const pitchVariation = Math.random() * 0.15;
-                    audioPitch = Math.min(0.85, basePitch + pitchVariation);
-                    
-                    // Speech rate fluctuates naturally
-                    const baseRate = 0.6 + Math.cos(speechPhase * 0.7) * 0.15;
-                    const rateVariation = Math.random() * 0.2;
-                    audioRate = Math.min(0.9, baseRate + rateVariation);
-                    
-                    // Occasional pauses (lower values)
-                    if (Math.random() < 0.05) {
-                        audioVolume *= 0.3;
-                        audioRate *= 0.4;
-                    }
-                    
-                    speechWordIndex++;
-                }, 80); // Update every 80ms for natural speech rhythm
+        function captureSpeechAudio(utterance) {
+            // Monitor speech synthesis for visual feedback
+            let wordCount = 0;
+            
+            utterance.onboundary = (event) => {
+                // Create artificial audio response during speech
+                wordCount++;
+                audioVolume = 0.4 + Math.random() * 0.3;
+                audioPitch = 0.4 + Math.random() * 0.4;
+                audioRate = 0.5 + Math.random() * 0.4;
             };
 
-            utterance.onboundary = (event) => {
-                // React to word boundaries with slight variations
-                if (event.name === 'word') {
-                    audioVolume = Math.min(0.9, audioVolume + 0.1);
-                    audioPitch = Math.min(0.85, audioPitch + (Math.random() * 0.1 - 0.05));
-                }
+            utterance.onstart = () => {
+                // Start continuous animation during speech
+                clearInterval(speechAnimationInterval);
+                speechAnimationInterval = setInterval(() => {
+                    audioVolume = 0.3 + Math.random() * 0.4 + Math.sin(Date.now() * 0.01) * 0.2;
+                    audioPitch = 0.5 + Math.random() * 0.3 + Math.cos(Date.now() * 0.008) * 0.15;
+                    audioRate = 0.6 + Math.random() * 0.3 + Math.sin(Date.now() * 0.012) * 0.2;
+                }, 100);
             };
 
             utterance.onend = () => {
                 clearInterval(speechAnimationInterval);
-                
-                // Smooth fade out over 1 second
-                let fadeSteps = 0;
-                const maxFadeSteps = 20;
-                
+                // Smooth fade out
                 let fadeOut = setInterval(() => {
-                    fadeSteps++;
-                    const fadeProgress = fadeSteps / maxFadeSteps;
-                    const easedFade = 1 - (fadeProgress * fadeProgress); // Ease-out
+                    audioVolume *= 0.8;
+                    audioPitch *= 0.8;
+                    audioRate *= 0.8;
                     
-                    audioVolume *= easedFade;
-                    audioPitch *= easedFade;
-                    audioRate *= easedFade;
-                    
-                    if (fadeSteps >= maxFadeSteps || audioVolume < 0.01) {
+                    if (audioVolume < 0.01) {
                         clearInterval(fadeOut);
                         audioVolume = 0;
                         audioPitch = 0;
@@ -682,54 +867,46 @@
             };
         }
 
-        // Initialize particle system
-        initParticleSystem();
-
-        // Animation loops for different states
-        let breathingPhase = 0;
-        let processingPhase = 0;
-        
-        setInterval(() => {
-            // Idle breathing animation for ready state
-            if (currentState === 'ready' && audioVolume < 0.01) {
-                breathingPhase += 0.02;
-                
-                // Smooth breathing pattern using sine wave
-                audioVolume = 0.08 + Math.sin(breathingPhase * 0.8) * 0.06;
-                audioPitch = 0.12 + Math.sin(breathingPhase * 1.2) * 0.08;
-                audioRate = 0.1 + Math.cos(breathingPhase * 0.6) * 0.05;
-            }
+        // Animation loop
+        function animate() {
+            const config = stateColors[currentState];
             
-            // Analyze audio in listening mode
-            if (currentState === 'listening') {
-                analyzeAudio();
-            }
-        }, 50); // Update every 50ms for smooth animations
-
-        // Processing state animation
-        let processingInterval = null;
-        
-        function startProcessingAnimation() {
-            processingPhase = 0;
-            clearInterval(processingInterval);
+            // Analyze audio
+            analyzeAudio();
             
-            processingInterval = setInterval(() => {
-                if (currentState === 'processing') {
-                    processingPhase += 0.05;
-                    
-                    // Pulsing animation with multiple sine waves for organic feel
-                    const pulse1 = Math.sin(processingPhase * 1.2) * 0.15;
-                    const pulse2 = Math.sin(processingPhase * 2.3) * 0.1;
-                    const pulse3 = Math.cos(processingPhase * 0.8) * 0.12;
-                    
-                    audioVolume = 0.35 + pulse1 + pulse2;
-                    audioPitch = 0.45 + pulse2 + pulse3;
-                    audioRate = 0.5 + pulse1 + pulse3;
-                } else {
-                    clearInterval(processingInterval);
-                }
-            }, 50);
+            // Clear canvas with fade effect
+            ctx.fillStyle = 'rgba(10, 10, 15, 0.15)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw central glow
+            drawCentralGlow(config.primary);
+
+            // Update and draw particles
+            particles.forEach(particle => {
+                particle.update(config);
+                particle.draw(config.primary);
+            });
+
+            // Draw connections
+            drawConnections(config, config.primary);
+            drawMouseConnections(config, config.secondary);
+
+            requestAnimationFrame(animate);
         }
+
+        // Initialize with ready state
+        initParticles(stateColors.ready.particleCount);
+        
+        // Idle breathing animation for ready state
+        setInterval(() => {
+            if (currentState === 'ready' && audioVolume < 0.01) {
+                audioVolume = 0.05 + Math.sin(Date.now() * 0.001) * 0.05;
+                audioPitch = 0.1;
+                audioRate = 0.1;
+            }
+        }, 100);
+        
+        animate();
 
         // ============ VOICE & WEBSOCKET ============
         const socket = io();
@@ -750,6 +927,8 @@
                 console.log('🎤 Browser listening started');
                 isListening = true;
                 socket.emit('browser_state', { state: 'listening' });
+                
+                // Start microphone analysis
                 startMicrophoneAnalysis();
             };
 
@@ -758,6 +937,8 @@
                 console.log('📝 Heard:', transcript);
                 isListening = false;
                 isProcessing = true;
+                
+                // Send command to server
                 socket.emit('voice_command', { command: transcript });
             };
 
@@ -765,6 +946,8 @@
                 console.error('❌ Speech recognition error:', event.error);
                 isListening = false;
                 isProcessing = false;
+                
+                // Restart listening after error
                 setTimeout(() => {
                     if (!isProcessing) {
                         startListening();
@@ -775,6 +958,8 @@
             recognition.onend = () => {
                 console.log('🔴 Browser listening ended');
                 isListening = false;
+                
+                // Auto-restart listening if not processing
                 if (!isProcessing) {
                     setTimeout(() => {
                         startListening();
@@ -783,7 +968,7 @@
             };
         } else {
             console.error('❌ Speech Recognition not supported in this browser');
-            alert('Speech Recognition not supported. Please use Chrome or Edge.');
+            alert('Speech Recognition not supported. Please use Chrome or Edge on your phone.');
         }
 
         function startListening() {
@@ -801,37 +986,45 @@
             const state = data.state;
             console.log('🔄 State changed to:', state);
             
+            // Update current state
             currentState = state;
-            updateStateColors();
             
+            // Update particle count for new state
+            const config = stateColors[state];
+            updateParticleCount(config.particleCount);
+            
+            // Update state indicator
             stateIndicator.className = 'state-indicator ' + state;
             stateIndicator.textContent = state.charAt(0).toUpperCase() + state.slice(1);
 
-            // State-specific audio animations with smooth transitions
+            // Reset audio values on state change
             if (state === 'processing') {
-                startProcessingAnimation();
-            } else if (state === 'ready') {
-                // Smooth transition to idle state
-                breathingPhase = 0;
-                const fadeToIdle = setInterval(() => {
-                    audioVolume *= 0.85;
-                    audioPitch *= 0.85;
-                    audioRate *= 0.85;
-                    
-                    if (audioVolume < 0.1) {
-                        clearInterval(fadeToIdle);
-                        audioVolume = 0;
-                        audioPitch = 0;
-                        audioRate = 0;
+                // Animated pulse for processing
+                let processingPulse = setInterval(() => {
+                    if (currentState === 'processing') {
+                        audioVolume = 0.3 + Math.sin(Date.now() * 0.005) * 0.2;
+                        audioPitch = 0.4 + Math.cos(Date.now() * 0.007) * 0.2;
+                        audioRate = 0.5 + Math.sin(Date.now() * 0.006) * 0.2;
+                    } else {
+                        clearInterval(processingPulse);
                     }
                 }, 50);
-                
+            } else if (state === 'ready') {
+                audioVolume = 0;
+                audioPitch = 0;
+                audioRate = 0;
+            }
+
+            // Control listening based on state
+            if (state === 'ready') {
                 isProcessing = false;
+                // Start listening after a short delay
                 setTimeout(() => {
                     startListening();
                 }, 1500);
-            } else if (state === 'speaking') {
+            } else if (state === 'speaking' || state === 'processing') {
                 isProcessing = true;
+                // Stop listening while AI is speaking/processing
                 if (recognition && isListening) {
                     try {
                         recognition.stop();
@@ -839,12 +1032,14 @@
                         console.log('Error stopping recognition:', e);
                     }
                 }
-            } else if (state === 'listening') {
-                // Reset audio values for fresh listening state
-                audioVolume = 0;
-                audioPitch = 0;
-                audioRate = 0;
             }
+        });
+
+        // Handle audio playback from server
+        socket.on('play_audio', (data) => {
+            console.log('🔊 Playing audio from server');
+            const audio = new Audio('data:audio/mp3;base64,' + data.audio);
+            audio.play().catch(e => console.error('Audio playback error:', e));
         });
 
         // Handle text-to-speech from server
@@ -852,13 +1047,15 @@
             const text = data.text;
             console.log('🗣️ Speaking text:', text);
 
+            // Use browser's built-in speech synthesis
             if ('speechSynthesis' in window) {
                 const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'ta-IN';
-                utterance.rate = 0.9;
+                utterance.lang = 'ta-IN'; // Tamil
+                utterance.rate = 0.9; // Slightly slower for clarity
                 utterance.pitch = 1.0;
                 utterance.volume = 1.0;
 
+                // Find a Tamil voice if available
                 const voices = speechSynthesis.getVoices();
                 const tamilVoice = voices.find(voice =>
                     voice.lang.includes('ta') || voice.lang.includes('hi')
@@ -866,21 +1063,48 @@
                 if (tamilVoice) {
                     utterance.voice = tamilVoice;
                     console.log('🎤 Using voice:', tamilVoice.name);
+                } else {
+                    console.log('⚠️ No Tamil voice found, using default');
                 }
 
-                simulateSpeechAudio(utterance);
+                utterance.onstart = () => {
+                    console.log('🔊 Speech started');
+                    // Capture speech audio for visualization
+                    captureSpeechAudio(utterance);
+                };
+
+                utterance.onend = () => {
+                    console.log('🔇 Speech ended');
+                };
+
+                utterance.onerror = (event) => {
+                    console.error('❌ Speech error:', event.error);
+                };
+
+                // Cancel any ongoing speech
                 speechSynthesis.cancel();
+                
+                // Speak
                 speechSynthesis.speak(utterance);
+            } else {
+                console.warn('⚠️ Speech synthesis not supported in this browser');
+                // Fallback: show text in console
+                console.log('Response:', text);
             }
         });
 
         // Connection events
         socket.on('connect', () => {
             console.log('✅ Connected to Zara AI server');
+            
+            // Wait a bit for voices to load
             setTimeout(() => {
+                // Load voices
                 if ('speechSynthesis' in window) {
                     speechSynthesis.getVoices();
                 }
+                
+                // Start listening after connection
                 setTimeout(() => {
                     startListening();
                 }, 2000);
@@ -895,7 +1119,7 @@
 
         // Click to manually trigger listening
         canvas.addEventListener('click', () => {
-            console.log('👆 Canvas clicked');
+            console.log('👆 Canvas clicked - Current state:', currentState);
             if (!isListening && !isProcessing) {
                 startListening();
             }
@@ -903,11 +1127,18 @@
 
         // Auto-start on page load
         window.addEventListener('load', () => {
-            console.log('📱 Page loaded');
+            console.log('📱 Page loaded - Waiting for connection...');
+            
+            // Load voices
             if ('speechSynthesis' in window) {
                 speechSynthesis.onvoiceschanged = () => {
                     const voices = speechSynthesis.getVoices();
                     console.log(`🎤 Loaded ${voices.length} voices`);
+                    voices.forEach((voice, i) => {
+                        if (voice.lang.includes('ta') || voice.lang.includes('hi') || voice.lang.includes('en')) {
+                            console.log(`  ${i}: ${voice.name} (${voice.lang})`);
+                        }
+                    });
                 };
             }
         });
@@ -920,8 +1151,11 @@
             if (!hasStarted) {
                 hasStarted = true;
                 console.log('🚀 User activated Zara');
+                
+                // Hide button
                 startButton.classList.remove('show');
                 
+                // Test speech synthesis
                 if ('speechSynthesis' in window) {
                     const testUtterance = new SpeechSynthesisUtterance('வணக்கம்');
                     testUtterance.lang = 'ta-IN';
@@ -929,6 +1163,7 @@
                     speechSynthesis.speak(testUtterance);
                 }
                 
+                // Start listening
                 setTimeout(() => {
                     startListening();
                 }, 1000);
